@@ -143,7 +143,7 @@ Notes to add after running: which cases failed and why, and whether the retrieva
 
 I designed the architecture and wrote the initial stubs and interfaces myself. I used Claude to expand those stubs into working implementations, GitHub Copilot for debugging, and Antigravity to draft tests and the demo UI.
 
-I reviewed all generated code and edited it where needed. For example, rewrote a prompt, tightened a test that was passing trivially. 
+ I reviewed all generated code, ran it against the eval set, and fixed problems I found.For example, The injection detector flagged ordinary messages such as "I forget the reset instructions" and the Hinglish "password bhul gaya", so I narrowed the patterns to attack-shaped phrases and added tests in both directions. The reply guard was discarding valid replies like "once a refund has been approved by the billing team…", so I restricted it to claims of completed action on the customer's own request. 
 
 At runtime, the service calls Groq (Llama) for generation, chosen for [low latency/cost], and uses a local FastEmbed model for embeddings, chosen for [no external dependency/privacy/cost].
 

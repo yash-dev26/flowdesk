@@ -8,26 +8,38 @@ import re
 
 from app.schemas import EMAIL_RE, Entities
 
+_VERB = r"(?:ignore|disregard|override|bypass)"
+_NOUN = r"(?:instructions?|rules|prompts?|guidelines|directions)"
 _INJECTION_PATTERNS = [
-    # English and Hinglish: "ignore previous instructions", "instructions ignore karo"
-    r"(ignore|disregard|forget|bhool|bhul)\W+(?:\w+\W+){0,4}(instruction|rule|prompt|nirdesh)",
-    r"(instruction|rule|prompt|nirdesh)\w*\W+(?:\w+\W+){0,3}(ignore|bhool|bhul)",
-    r"(reveal|show|print|repeat|leak)\W+(?:\w+\W+){0,4}(system prompt|your prompt|your instructions)",
-    r"system prompt",
-    r"you are now\b",
-    r"\b(developer|admin|god|dan) mode\b",
+    # "ignore all previous instructions", "disregard your prior rules"
+    rf"\b(?:{_VERB}|forget)\W+(?:(?:all|any|of|the|your|my|these|those)\W+){{0,2}}"
+    rf"(?:previous|prior|above|earlier|preceding|original|initial|system|safety)\W+(?:\w+\W+)?{_NOUN}",
+    # "ignore your instructions", "bypass all rules" (not "ignore my ticket")
+    rf"\b{_VERB}\W+(?:all|any|your|these)\W+{_NOUN}",
+    # Hinglish: "pichle saare instructions ignore karo", "instructions ignore karo"
+    r"\b(?:pichle|purane|saare|sare|sabhi|upar ke)\W+(?:\w+\W+){0,2}(?:instruction|rules?|nirdesh)\w*\W+(?:\w+\W+){0,3}(?:ignore|bhool|bhul)",
+    r"\b(?:instruction|nirdesh)\w*\W+ignore\W+kar",
+    r"\b(?:reveal|show|print|repeat|leak)\W+(?:\w+\W+){0,4}(?:system prompt|your prompt|your instructions)",
+    r"\bsystem prompt",
+    r"\byou are now (?:an? |the )?(?:admin\w*|developer|dan|unrestricted|jailbroken|root)\b",
+    r"\b(?:developer|admin|god|dan) mode\b",
     r"\bjailbreak",
-    r"</?\s*(system|assistant|customer_message)\s*>",
+    r"</?\s*(?:system|assistant|customer_message)\s*>",
     r"\[/?inst\]",
 ]
 _INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in _INJECTION_PATTERNS), re.IGNORECASE)
 
+# Completed-action claims: first person ("I have approved ...") or about the customer's own
+# case ("your refund has been approved"). Generic policy text ("approved refunds reach ...")
+# and conditionals ("if your refund is approved") are fine.
+_ACTION = r"(?:approved|processed|issued|refunded|credited|cancell?ed|upgraded|deleted|reset|escalated|granted|completed)"
 _ACTION_CLAIM_RE = re.compile(
-    r"\b(i|we)(?:'ve| have)\s+(approved|processed|issued|refunded|credited|cancell?ed|upgraded|deleted|reset|escalated)\b"
-    r"|\b(refund|request|cancellation|upgrade)\s+(?:has been|have been|is now|was)\s+(approved|processed|issued|completed|granted)\b"
-    r"|\b(has|have) been (approved|refunded|credited|processed|issued)\b",
+    rf"\b(?:i|we)(?:'ve| have)\s+{_ACTION}\b"
+    rf"|\byour\s+(?:\w+\s+){{0,2}}(?:refund|request|cancellation|upgrade|account|ticket|payment|invoice)"
+    rf"\s+(?:has been|have been|is now|was|is)\s+{_ACTION}\b",
     re.IGNORECASE,
 )
+_CONDITIONAL_RE = re.compile(r"\b(?:if|once|when|after|until|unless|whether)\b", re.IGNORECASE)
 
 _DELIMITER_RE = re.compile(r"</?\s*customer_message\s*>", re.IGNORECASE)
 
@@ -43,7 +55,11 @@ def sanitize(message: str) -> str:
 
 
 def reply_claims_action(reply: str) -> bool:
-    return bool(_ACTION_CLAIM_RE.search(reply))
+    for m in _ACTION_CLAIM_RE.finditer(reply):
+        clause_start = max(reply.rfind(c, 0, m.start()) for c in ".!?,;") + 1
+        if not _CONDITIONAL_RE.search(reply[clause_start:m.start()]):
+            return True  # a real claim, not "if your refund is approved, ..."
+    return False
 
 
 def reconcile_entities(entities: Entities, message: str) -> Entities:
