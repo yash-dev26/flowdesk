@@ -1,10 +1,8 @@
 import json
-import sqlite3
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 
+from app.db import connection
 from app.schemas import (
     Category, Entities, Priority, Sentiment, Status, TicketOut, TriageResult,
 )
@@ -23,7 +21,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     suggested_reply TEXT,
     article_ids TEXT NOT NULL,
     status TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    review_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_category ON tickets(category);
 CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
@@ -34,43 +33,40 @@ CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 class TicketRepository:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._init()
-
-    @contextmanager
-    def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
-
-    def _init(self) -> None:
-        with self._conn() as c:
+        with connection(db_path) as c:
             c.executescript(SCHEMA)
+            # tiny migration for DBs created before review_reason existed
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(tickets)")}
+            if "review_reason" not in cols:
+                c.execute("ALTER TABLE tickets ADD COLUMN review_reason TEXT")
 
     def create(self, message: str, result: TriageResult) -> TicketOut:
         ticket_id = uuid.uuid4().hex[:12]
         status = Status.needs_review if result.needs_human_review else Status.open
-        created = datetime.now(timezone.utc)
-        with self._conn() as c:
-            c.execute(
-                "INSERT INTO tickets VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    ticket_id, message, result.category.value, result.priority.value,
-                    result.sentiment.value, result.entities.model_dump_json(),
-                    result.language, int(result.injection_suspected),
-                    int(result.needs_human_review), result.suggested_reply,
-                    json.dumps(result.article_ids), status.value, created.isoformat(),
-                ),
-            )
+        row = {
+            "id": ticket_id,
+            "message": message,
+            "category": result.category.value,
+            "priority": result.priority.value,
+            "sentiment": result.sentiment.value,
+            "entities": result.entities.model_dump_json(),
+            "language": result.language,
+            "injection_suspected": int(result.injection_suspected),
+            "needs_human_review": int(result.needs_human_review),
+            "suggested_reply": result.suggested_reply,
+            "article_ids": json.dumps(result.article_ids),
+            "status": status.value,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "review_reason": result.review_reason,
+        }
+        cols = ", ".join(row)
+        marks = ", ".join(f":{k}" for k in row)
+        with connection(self.db_path) as c:
+            c.execute(f"INSERT INTO tickets ({cols}) VALUES ({marks})", row)
         return self.get(ticket_id)  # type: ignore[return-value]
 
     def get(self, ticket_id: str) -> TicketOut | None:
-        with self._conn() as c:
+        with connection(self.db_path) as c:
             row = c.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
         return self._row(row) if row else None
 
@@ -89,12 +85,12 @@ class TicketRepository:
                 params.append(val.value)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"SELECT * FROM tickets {where} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?"
-        with self._conn() as c:
+        with connection(self.db_path) as c:
             rows = c.execute(sql, (*params, limit, offset)).fetchall()
         return [self._row(r) for r in rows]
 
     @staticmethod
-    def _row(r: sqlite3.Row) -> TicketOut:
+    def _row(r) -> TicketOut:
         return TicketOut(
             id=r["id"],
             message=r["message"],
@@ -105,6 +101,7 @@ class TicketRepository:
             language=r["language"],
             injection_suspected=bool(r["injection_suspected"]),
             needs_human_review=bool(r["needs_human_review"]),
+            review_reason=r["review_reason"],
             suggested_reply=r["suggested_reply"],
             article_ids=json.loads(r["article_ids"]),
             status=Status(r["status"]),

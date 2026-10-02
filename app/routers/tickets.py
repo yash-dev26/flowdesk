@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app import triage_stub
 from app.repository import TicketRepository
 from app.schemas import Category, Priority, Status, TicketCreate, TicketOut
 
@@ -15,8 +14,10 @@ def _repo(request: Request) -> TicketRepository:
 def create_ticket(body: TicketCreate, request: Request):
     max_chars = request.app.state.settings.max_message_chars
     message = body.message[:max_chars]
-    result = triage_stub.triage(message)
-    return _repo(request).create(message, result)
+    out = request.app.state.pipeline.run(message)  # never raises; degrades to human review
+    ticket = _repo(request).create(message, out.result)
+    request.app.state.metrics.record(ticket.id, out.stats, out.result)
+    return ticket
 
 
 @router.get("", response_model=list[TicketOut])

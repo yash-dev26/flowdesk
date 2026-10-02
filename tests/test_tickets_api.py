@@ -7,7 +7,7 @@ from app.main import create_app
 
 @pytest.fixture()
 def client(tmp_path):
-    app = create_app(Settings(db_path=str(tmp_path / "t.db")))
+    app = create_app(Settings(db_path=str(tmp_path / "t.db"), llm_provider="fake", embedding_provider="hashing", retrieval_min_score=0.2))
     return TestClient(app)
 
 
@@ -42,3 +42,17 @@ def test_list_filters(client):
     assert client.get("/tickets?category=billing").json() == []
     assert client.get("/tickets?status=resolved").json() == []
     assert client.get("/tickets?priority=bogus").status_code == 422
+
+
+def test_metrics_endpoint_reflects_requests(client):
+    assert client.get("/metrics").json()["total_requests"] == 0
+    client.post("/tickets", json={"message": "hello"})  # fake LLM returns "{}" -> safe fallback
+    m = client.get("/metrics").json()
+    assert m["total_requests"] == 1
+    assert m["fallback_rate"] == 1.0 and m["human_review_rate"] == 1.0
+    assert set(m) >= {"latency_ms", "tokens", "estimated_cost_usd", "injection_rate"}
+
+
+def test_ticket_exposes_review_reason(client):
+    t = client.post("/tickets", json={"message": "hello"}).json()
+    assert t["needs_human_review"] and t["review_reason"] == "triage_failed"
