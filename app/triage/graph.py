@@ -23,6 +23,7 @@ from langgraph.graph import END, START, StateGraph
 from app.config import Settings
 from app.llm.base import LLMError, LLMProvider
 from app.llm.langchain_adapter import ProviderChatModel, UsageCallback
+from app.llm.retry import reset_request_deadline, set_request_deadline
 from app.schemas import (
     Category, Entities, Priority, ReplyLLMOutput, Sentiment, TriageLLMOutput, TriageResult,
 )
@@ -211,6 +212,7 @@ class TriagePipeline:
     def run(self, message: str) -> PipelineOutput:
         usage = UsageCallback()
         start = time.perf_counter()
+        deadline_token = set_request_deadline(start + self.settings.request_timeout_seconds)
         try:
             final = self.graph.invoke({"message": message}, config={"callbacks": [usage]})
             result, fallback = final["result"], bool(final.get("fallback_used"))
@@ -221,6 +223,8 @@ class TriagePipeline:
                 injection_suspected=bool(detect_injection(message)),
                 needs_human_review=True, review_reason="pipeline_error")
             fallback = True
+        finally:
+            reset_request_deadline(deadline_token)
         s = self.settings
         cost = (usage.prompt_tokens * s.price_per_1m_input_usd
                 + usage.completion_tokens * s.price_per_1m_output_usd) / 1_000_000

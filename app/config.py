@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-120b"
     llm_timeout_seconds: float = 15.0
+    request_timeout_seconds: float = 60.0
     llm_max_retries: int = 2
     llm_base_delay_seconds: float = 0.5
     llm_max_delay_seconds: float = 8.0

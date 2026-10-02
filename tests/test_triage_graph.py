@@ -50,6 +50,7 @@ def test_llm_timeouts_fall_back_without_crashing(make_pipeline):
     out = pipe.run(MSG)
     assert out.result.needs_human_review and out.stats.fallback_used
     assert out.result.entities.email == "ravi@example.com"  # regex still works with no LLM
+    assert out.stats.llm_calls == 2
     assert len(fake.calls) == 2  # 1 try + llm_max_retries=1
 
 

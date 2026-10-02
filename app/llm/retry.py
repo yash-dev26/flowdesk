@@ -1,11 +1,26 @@
 import logging
 import random
 import time
+from contextvars import ContextVar
 from typing import Callable
 
-from app.llm.base import LLMError, LLMProvider, LLMRateLimitError, LLMResponse
+from app.llm.base import LLMDeadlineError, LLMError, LLMProvider, LLMRateLimitError, LLMResponse
 
 log = logging.getLogger("flowdesk.llm")
+_request_deadline: ContextVar[float | None] = ContextVar("request_deadline", default=None)
+
+
+def set_request_deadline(deadline: float | None):
+    return _request_deadline.set(deadline)
+
+
+def reset_request_deadline(token) -> None:
+    _request_deadline.reset(token)
+
+
+def _remaining_budget() -> float | None:
+    deadline = _request_deadline.get()
+    return None if deadline is None else deadline - time.monotonic()
 
 
 def backoff_delay(attempt: int, base: float, cap: float,
@@ -39,16 +54,25 @@ def call_with_retry(
     """
     attempt = 0
     while True:
+        remaining = _remaining_budget()
+        if remaining is not None and remaining <= 0:
+            raise LLMDeadlineError("request deadline exceeded")
         try:
             resp = provider.complete(system, user, json_mode=json_mode, **kwargs)
+            if (remaining := _remaining_budget()) is not None and remaining <= 0:
+                raise LLMDeadlineError("request deadline exceeded")
             resp.attempts = attempt + 1
             return resp
         except LLMError as e:
-            if not e.retryable or attempt >= max_retries:
+            e.attempts = attempt + 1
+            remaining = _remaining_budget()
+            if not e.retryable or attempt >= max_retries or (remaining is not None and remaining <= 0):
                 log.warning("llm call failed (%s) after %d attempt(s)", e.code, attempt + 1)
                 raise
             retry_after = e.retry_after if isinstance(e, LLMRateLimitError) else None
             delay = backoff_delay(attempt, base_delay, max_delay, retry_after)
+            if remaining is not None:
+                delay = min(delay, remaining)
             log.info("llm %s, retrying in %.2fs (attempt %d)", e.code, delay, attempt + 1)
             sleep(delay)
             attempt += 1

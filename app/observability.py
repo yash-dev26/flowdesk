@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
     injection_suspected INTEGER NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_request_logs_latency ON request_logs(latency_ms);
 """
 
 
@@ -54,25 +55,47 @@ class MetricsStore:
 
     def summary(self) -> dict:
         with connection(self.db_path) as c:
-            rows = c.execute("SELECT * FROM request_logs").fetchall()
-        n = len(rows)
-        lat = sorted(r["latency_ms"] for r in rows)
-        cost = sum(r["cost_usd"] for r in rows)
-        rate = lambda col: round(sum(r[col] for r in rows) / n, 4) if n else 0.0
+            totals = c.execute(
+                "SELECT COUNT(*) AS n, "
+                "COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
+                "COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "
+                "COALESCE(SUM(llm_calls), 0) AS llm_calls, "
+                "COALESCE(SUM(cost_usd), 0) AS cost_usd, "
+                "COALESCE(SUM(fallback_used), 0) AS fallback_used, "
+                "COALESCE(SUM(needs_human_review), 0) AS needs_human_review, "
+                "COALESCE(SUM(injection_suspected), 0) AS injection_suspected, "
+                "COALESCE(AVG(latency_ms), 0) AS avg_latency_ms "
+                "FROM request_logs"
+            ).fetchone()
+            n = totals["n"]
+
+            def percentile(p: float) -> float:
+                if not n:
+                    return 0.0
+                idx = min(n - 1, max(0, round(p * (n - 1))))
+                row = c.execute(
+                    "SELECT latency_ms FROM request_logs "
+                    "ORDER BY latency_ms LIMIT 1 OFFSET ?", (idx,)).fetchone()
+                return round(row["latency_ms"], 1)
+
+            p50 = percentile(0.5)
+            p95 = percentile(0.95)
+
+        rate = lambda col: round(totals[col] / n, 4) if n else 0.0
         return {
             "total_requests": n,
             "latency_ms": {
-                "avg": round(sum(lat) / n, 1) if n else 0.0,
-                "p50": round(_percentile(lat, 0.5), 1),
-                "p95": round(_percentile(lat, 0.95), 1),
+                "avg": round(totals["avg_latency_ms"], 1),
+                "p50": p50,
+                "p95": p95,
             },
             "tokens": {
-                "prompt": sum(r["prompt_tokens"] for r in rows),
-                "completion": sum(r["completion_tokens"] for r in rows),
+                "prompt": totals["prompt_tokens"],
+                "completion": totals["completion_tokens"],
             },
-            "llm_calls": sum(r["llm_calls"] for r in rows),
-            "estimated_cost_usd": {"total": round(cost, 6),
-                                   "avg_per_request": round(cost / n, 6) if n else 0.0},
+            "llm_calls": totals["llm_calls"],
+            "estimated_cost_usd": {"total": round(totals["cost_usd"], 6),
+                                   "avg_per_request": round(totals["cost_usd"] / n, 6) if n else 0.0},
             "fallback_rate": rate("fallback_used"),
             "human_review_rate": rate("needs_human_review"),
             "injection_rate": rate("injection_suspected"),

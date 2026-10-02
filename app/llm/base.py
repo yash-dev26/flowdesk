@@ -29,6 +29,10 @@ class LLMTimeoutError(LLMError):
     code = "llm_timeout"
 
 
+class LLMDeadlineError(LLMError):
+    code = "llm_deadline_exceeded"
+
+
 class LLMRateLimitError(LLMError):
     retryable = True
     code = "llm_rate_limited"

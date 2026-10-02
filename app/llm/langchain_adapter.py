@@ -54,6 +54,7 @@ class ProviderChatModel(BaseChatModel):
                 "input_tokens": resp.prompt_tokens,
                 "output_tokens": resp.completion_tokens,
                 "total_tokens": resp.prompt_tokens + resp.completion_tokens,
+                "attempts": resp.attempts,
             },
         )
         return ChatResult(
@@ -73,7 +74,10 @@ class UsageCallback(BaseCallbackHandler):
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         for gens in response.generations:
             for g in gens:
-                self.calls += 1
                 usage = getattr(getattr(g, "message", None), "usage_metadata", None) or {}
+                self.calls += usage.get("attempts", 1)
                 self.prompt_tokens += usage.get("input_tokens", 0)
                 self.completion_tokens += usage.get("output_tokens", 0)
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        self.calls += getattr(error, "attempts", 1)

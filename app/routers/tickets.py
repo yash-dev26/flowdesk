@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.repository import TicketRepository
 from app.schemas import Category, Priority, Status, TicketCreate, TicketOut
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
+log = logging.getLogger("flowdesk.api")
 
 
 def _repo(request: Request) -> TicketRepository:
@@ -16,7 +19,10 @@ def create_ticket(body: TicketCreate, request: Request):
     message = body.message[:max_chars]
     out = request.app.state.pipeline.run(message)  # never raises; degrades to human review
     ticket = _repo(request).create(message, out.result)
-    request.app.state.metrics.record(ticket.id, out.stats, out.result)
+    try:
+        request.app.state.metrics.record(ticket.id, out.stats, out.result)
+    except Exception:
+        log.exception("metrics recording failed for ticket=%s", ticket.id)
     return ticket
 
 
