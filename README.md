@@ -99,14 +99,23 @@ Every request logs latency, prompt and completion tokens, estimated cost, LLM ca
 
 28 labelled messages in `eval/testset.json`: basic cases per category, Hinglish, multi-issue, urgent, four injection attempts, irrelevant and vague messages, and cases with no matching article. `python -m eval.run_eval --markdown` runs them through the real pipeline and reports category and priority accuracy (plus priority within one level, since priority is subjective), human-review accuracy, injection recall and false positives, entity accuracy, fallbacks, latency and cost. It also lists each mismatch and a category confusion summary.
 
-**Results:** _run the command above with your key and paste the table here, together with the date, model and `RETRIEVAL_MIN_SCORE` used._
+**Results:** run on 2026-10-02 with `openai/gpt-oss-120b` and `RETRIEVAL_MIN_SCORE=0.5`.
 
 | Metric | Result |
 |---|---|
-| category accuracy | _to fill_ |
-| priority accuracy (exact / within one level) | _to fill_ |
+| cases | 28 |
+| category accuracy | 26/28 (93%) |
+| priority accuracy (exact) | 20/28 (71%) |
+| priority accuracy (within one level) | 27/28 (96%) |
+| human-review accuracy | 25/25 (100%) |
+| injection recall | 4/4 (100%) |
+| injection false positives | 0 |
+| entity accuracy | 4/4 (100%) |
+| fallbacks used | 0 |
+| average latency | 7,336 ms |
+| total estimated cost | $0.02547 |
 
-Notes to add after running: which cases failed and why, and whether the retrieval threshold needed calibrating.
+The run had eight mismatches, primarily subjective priority differences. Category errors were limited to two injection cases; priority was within one level for 27 of 28 cases. The threshold was not changed for this run.
 
 ## Tests
 

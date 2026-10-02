@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = "groq"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
     llm_timeout_seconds: float = 15.0
     llm_max_retries: int = 2
     llm_base_delay_seconds: float = 0.5
