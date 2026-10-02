@@ -6,7 +6,7 @@ is empty it falls back to `default`.
 """
 from collections import deque
 
-from app.llm.base import LLMError, LLMResponse, LLMServerError, LLMTimeoutError
+from app.llm.base import LLMResponse
 
 
 class FakeLLM:
@@ -17,15 +17,10 @@ class FakeLLM:
         self._script = deque(script or [])
         self.default = default
         self.calls: list[dict] = []
-        self.fail_mode: str | None = None  # "timeout" | "server": forced failure
 
     def complete(self, system: str, user: str, *, json_mode: bool = False,
                  temperature: float = 0.0, max_tokens: int = 600) -> LLMResponse:
         self.calls.append({"system": system, "user": user, "json_mode": json_mode})
-        if self.fail_mode == "timeout":
-            raise LLMTimeoutError("simulated timeout")
-        if self.fail_mode == "server":
-            raise LLMServerError("simulated provider outage")
         item = self._script.popleft() if self._script else self.default
         if isinstance(item, Exception):
             raise item

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowdesk triage console</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Flowdesk triage console</h1>
+  <label id="fault-wrap" hidden>Simulate LLM failure
+    <select id="fault"></select></label>
+</header>
+<main>
+  <section class="col">
+    <h2>New message</h2>
+    <textarea id="msg" rows="5" placeholder="Paste a customer message, Hinglish is fine"></textarea>
+    <div class="chips" id="samples"></div>
+    <button id="go">Analyse message</button>
+    <div id="result" aria-live="polite"></div>
+  </section>
+  <section class="col">
+    <h2>Service metrics</h2>
+    <div id="metrics" class="stats"></div>
+    <h2>Tickets</h2>
+    <div class="filters">
+      <select id="f-category"><option value="">Any category</option></select>
+      <select id="f-priority"><option value="">Any priority</option></select>
+      <select id="f-status"><option value="">Any status</option></select>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Message</th><th>Category</th><th>Priority</th><th>Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

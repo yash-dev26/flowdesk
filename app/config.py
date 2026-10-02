@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     kb_dir: str = "kb"
     retrieval_top_k: int = 3
     retrieval_min_score: float = 0.5
+    demo_mode: bool = False  # enables /demo/* routes (fault injection) for the showcase
     db_path: str = "data/flowdesk.db"
     max_message_chars: int = 4000
 
